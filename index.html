@@ -545,7 +545,7 @@ button{font-family:inherit;}
     <div class="sidebar-foot">
       ⚜ <b>Keizaal Online</b> ⚜<br>
       Atlas non-officiel des voyageurs<br>
-      Compilé par les seigneurs des passes
+      Compilé par la Guilde des Cartographes
     </div>
   </aside>
 
@@ -605,7 +605,7 @@ button{font-family:inherit;}
   <div class="drawer-head">
     <div>
       <h3>Infos RP actuelles</h3>
-      <p>Notes de terrain — visibles par vous seul, le temps de la session</p>
+      <p>Notes de terrain — visibles par vous seul, enregistrées sur cet appareil</p>
     </div>
     <button class="drawer-close" id="closeDrawer">✕</button>
   </div>
@@ -613,7 +613,7 @@ button{font-family:inherit;}
   <div class="drawer-foot">
     <textarea id="noteInput" placeholder="Ex : Le clan Silver-Blood a doublé ses gardes à Kolskeggr suite à un raid Forsworn cette nuit…"></textarea>
     <button id="addNote">Ajouter la note</button>
-    <p class="hint">Ces notes vivent en mémoire le temps de la session (aucune sauvegarde serveur) — idéal pour consigner rumeurs, taxes du jour ou mouvements de clans avant une session RP.</p>
+    <p class="hint">Ces notes sont enregistrées automatiquement dans ce navigateur (aucune sauvegarde serveur, aucun partage entre appareils) — idéal pour consigner rumeurs, taxes du jour ou mouvements de clans avant une session RP.</p>
   </div>
 </div>
 
@@ -658,7 +658,35 @@ let state = {
   query: ""
 };
 
-let sessionNotes = []; // en mémoire uniquement (pas de localStorage)
+/* ============================================================
+   SAUVEGARDE LOCALE (localStorage du navigateur)
+   Les marqueurs et les notes RP sont désormais conservés d'une
+   visite à l'autre, sur cet appareil et ce navigateur.
+   ============================================================ */
+const STORAGE_KEY_MARKERS = "keizaal-atlas-markers";
+const STORAGE_KEY_NOTES   = "keizaal-atlas-notes";
+
+function loadFromStorage(key, fallback){
+  try{
+    const raw = localStorage.getItem(key);
+    if(!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : fallback;
+  }catch(err){
+    console.warn("Lecture localStorage impossible pour", key, err);
+    return fallback;
+  }
+}
+
+function saveToStorage(key, value){
+  try{
+    localStorage.setItem(key, JSON.stringify(value));
+  }catch(err){
+    console.warn("Sauvegarde localStorage impossible pour", key, err);
+  }
+}
+
+let sessionNotes = loadFromStorage(STORAGE_KEY_NOTES, []);
 
 const mapFrame   = document.getElementById('mapFrame');
 const cardList    = document.getElementById('cardList');
@@ -696,8 +724,8 @@ function buildRegionChips(){
   });
 }
 
-/* ---------- Marqueurs ajoutés par les joueurs (en mémoire, le temps de la session) ---------- */
-let customMarkers = [];
+/* ---------- Marqueurs ajoutés par les joueurs (sauvegardés dans le navigateur via localStorage) ---------- */
+let customMarkers = loadFromStorage(STORAGE_KEY_MARKERS, []);
 let addModeOn = false;
 let pendingCoords = null; // {x,y} en % en attente de validation via le formulaire
 
@@ -914,6 +942,7 @@ function openModal(id){
   if(item.isCustom){
     document.getElementById('deleteMarkerBtn').addEventListener('click', ()=>{
       customMarkers = customMarkers.filter(m=>m.id !== item.id);
+      saveToStorage(STORAGE_KEY_MARKERS, customMarkers);
       overlay.classList.remove('open');
       render();
     });
@@ -938,7 +967,7 @@ function openCreateForm(){
   `;
 
   modalBody.innerHTML = `
-    <p class="form-hint">Ce marqueur sera visible par vous durant cette session (aucune sauvegarde serveur pour l'instant). Choisissez une catégorie pour qu'il apparaisse dans l'onglet correspondant.</p>
+    <p class="form-hint">Ce marqueur sera enregistré automatiquement dans ce navigateur et restera visible lors de vos prochaines visites (aucune sauvegarde serveur, aucun partage entre appareils ou avec les autres joueurs).</p>
     <form id="createForm">
       <div class="form-grid">
         <div class="form-field full">
@@ -1004,6 +1033,7 @@ function openCreateForm(){
       isCustom: true
     };
     customMarkers.push(newItem);
+    saveToStorage(STORAGE_KEY_MARKERS, customMarkers);
     pendingCoords = null;
     overlay.classList.remove('open');
     // bascule automatiquement vers la catégorie du marqueur créé pour le voir apparaître
@@ -1053,6 +1083,7 @@ function renderNotes(){
   notesList.querySelectorAll('.del').forEach(b=>{
     b.addEventListener('click', ()=>{
       sessionNotes.splice(Number(b.dataset.i),1);
+      saveToStorage(STORAGE_KEY_NOTES, sessionNotes);
       renderNotes();
     });
   });
@@ -1065,15 +1096,20 @@ document.getElementById('addNote').addEventListener('click', ()=>{
   const now = new Date();
   const time = now.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}) + ' — ' + now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
   sessionNotes.unshift({text, time});
+  saveToStorage(STORAGE_KEY_NOTES, sessionNotes);
   ta.value = '';
   renderNotes();
 });
 
-/* seed with a couple of example notes so the panel feels alive */
-sessionNotes = [
-  { text:"La Compagnie du Pic-d'Argent a doublé ses effectifs à Kolskeggr après un raid Forsworn signalé cette nuit — prudence sur la route minière.", time:"Exemple" },
-  { text:"Rumeur au Cheval Bandé : un chat-sabre particulièrement agressif rôderait près de la vallée de la Karth depuis deux jours.", time:"Exemple" }
-];
+/* seed with a couple of example notes uniquement lors de la toute première visite
+   (si aucune note n'a encore été sauvegardée dans ce navigateur) */
+if(sessionNotes.length === 0 && localStorage.getItem(STORAGE_KEY_NOTES) === null){
+  sessionNotes = [
+    { text:"La Compagnie du Pic-d'Argent a doublé ses effectifs à Kolskeggr après un raid Forsworn signalé cette nuit — prudence sur la route minière.", time:"Exemple" },
+    { text:"Rumeur au Cheval Bandé : un chat-sabre particulièrement agressif rôderait près de la vallée de la Karth depuis deux jours.", time:"Exemple" }
+  ];
+  saveToStorage(STORAGE_KEY_NOTES, sessionNotes);
+}
 
 /* ---------- Mobile nav ---------- */
 document.getElementById('mobileNavToggle').addEventListener('click', ()=>{
